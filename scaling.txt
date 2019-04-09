@@ -1,0 +1,74 @@
+The Topology of the neural nets here is always a random graph with N nodes and a constant in-degree of D-1. (More precisely, an inverted watts-strogatz graph of degree D-1 with p=1.)
+
+Additionally the i'th 1 bit input line serves as input 0 for the i'th neuron. If the wrapper is used, only neurons 0...31 get this extra input. It's possible that the synthesis tool therefore optimizes away some hardware for neurons 32 and above. It will also generate a lot of (harmless) warnings when the wrapper is used with N>32, for the same reason.
+The i'th neuron's output is also visible as the i'th output of the net. If the wrapper is used, only the last 32 neurons can be observed.
+
+--Straightforward Design--
+
+Occupied Slices
+
+	D	4		8
+N
+64		1374		3452
+128		2451
+300		5650
+
+The design requires approx. (D+1) adders per neuron which are organized in a tree which adds up the D weights and the bias. Each adder is for two inputs 8..8+ceil(log2(D+1)) bit wide
+
+However it turns out in reality much wider adders are being used. The reason is unclear (it seems wasteful of the synthesis tool) 
+
+Period [/ns] (Constraint was 10ns)
+
+	D	4		8
+N
+64		9.5 ns		15ns (!?)	
+128		9.4 ns
+300		9.9 ns
+
+Due to the pipeline architecture (each neuron stores result in flipflop each clock tick), the period should really be constant. It is possible however that as D increases, the increasing depth of the tree of adders (which is log2(D+1)) would increase the minimum period. 
+
+I initially thought the random graph structure was to blame - maybe just connecting two clocked flipflops on opposite corners of the FPGA incurs a runtime of 15ns or more - but that problem would also appear with a LUT design. Timing is fine there...
+
+With N=64/D=8, to meet the timing constraint, output flipflops were being replicated (on avg. 3 times per FF).
+
+Flipflops Used 	= (D+1) * 32 * 8 bits + D * (N-32) * 8 bits + (Replication Factor) * N bits
+		= approx. D*N*8 bit
+
+--Design with Shift Register / Lookup Table Neurons--
+
+Slices Occupied
+
+      	D	4	6	7	8
+N
+512		1048	1335		2022
+1024			2614
+1602(*)				3665
+
+This design seems to be more efficient by a factor of 10 for D=4, and more for D=5. With rising D, this design scales worse than the straightforward one, though. (exponential in D, see LUT consumption). Both designs are linear in N.
+Space is taken up by the Neurons (one 2**D bit SLR and one FF each) and the demux (used for addressing when rewriting to the neurons' boolean function), which should have size O(N).
+
+Period [/ns]
+
+	D	4	6	7	8
+N
+512		4.6	4.7		6.0
+1024			7.0
+1602(*)				8.6
+
+Timing is better than for the explicitly computing version, probably due to only one table lookup being done neuron, not a cascaded addition like with the other design.
+
+Flipflops Used = N
+
+LUTs used as SLRs = max(N, N * 2**(D-5))
+	
+	D	4	6	7	8
+N
+512		512	1024		4096
+1024			2048	
+1602(*)				6408
+
+In this design Neurons just consist of a flipflop and a 2**D bit SLR, which seems to be built from 2**5-bit lookup tables on this xilinx board. Thus the size of a neuron grows exponentially in D only once D gets above 5.
+
+(*) While 6000 shift register capable LUTs would be enough for N=12100/D=5, there seems to be a problem with another resource besides the special LUT: "The target device has only 1602 SLICEM sites. This design has (N) unique SRL control sets. At least (N) SLICEM sites are required to implement the (N) unique SRL control sets. " I don't really understand why not ever LUT (there are >20000) is usable as a SLR, and why every SLR cannot be controlled independently.
+
+A design better adapted to the xilinx fpga could use standard LUTs instead of the fancy LUTs and change the weights at runtime using the dynamic reprogramming interface, instead of using an explicit Function_In and Write_Function input on each neuron.
