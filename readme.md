@@ -2,7 +2,7 @@
 
 Generic VHDL entity implementing a clocked, arbitrary graph of lookup tables. 
 
-This corresponds to an artificial neural network with boolean inputs/outputs. 
+This represents an artificial neural network with boolean inputs/outputs. 
 
 Each neuron is implemented as a shift register look-up table (SLR) plus a flipflop. Each clock cycle, each neuron computes a new value for its flipflop based on its inputs. The connectivity graph may have cycles (i.e. feedback). 
 
